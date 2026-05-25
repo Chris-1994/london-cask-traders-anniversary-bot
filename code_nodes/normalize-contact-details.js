@@ -1,3 +1,4 @@
+// Nodename: Normalize HubSpot Contact Details
 const PORTAL_ID = "25187088";
 
 return $input.all().map((item) => {

@@ -1,3 +1,5 @@
+// Nodename: Normalize HubSpot Contact Lookup Result
+
 const output = [];
 
 for (const item of $input.all()) {
@@ -7,11 +9,11 @@ for (const item of $input.all()) {
   const flags = new Set(item.json.flags || []);
 
   if (!chosenContact) {
-    flags.add('contact_lookup_needed');
+    flags.add("contact_lookup_needed");
   }
 
   if (contacts.length > 1) {
-    flags.add('multiple_contacts');
+    flags.add("multiple_contacts");
   }
 
   output.push({
@@ -19,10 +21,10 @@ for (const item of $input.all()) {
       ...item.json,
       contactId: chosenContact ? chosenContact.id : null,
       contactLookupStatus: !chosenContact
-        ? 'missing_contact'
+        ? "missing_contact"
         : contacts.length > 1
-          ? 'multiple_contacts'
-          : 'ok',
+          ? "multiple_contacts"
+          : "ok",
       allAssociatedContactIds: contacts.map((contact) => contact.id),
       flags: [...flags],
     },

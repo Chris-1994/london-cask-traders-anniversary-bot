@@ -51,12 +51,12 @@ function cohortName(years) {
   return years >= 5 ? "5-year+" : `${years}-year`;
 }
 
-function brokerSubject(items) {
-  return `Anniversary check-ins — week of ${items[0]?.anniversaryDate || ""}`;
+function brokerSubject(weekLabel) {
+  return `Anniversary check-ins — week of ${weekLabel}`;
 }
 
-function managerSubject(items) {
-  return `Weekly anniversary roundup — week of ${items[0]?.anniversaryDate || ""}`;
+function managerSubject(weekLabel) {
+  return `Weekly anniversary roundup — week of ${weekLabel}`;
 }
 
 function sortEmailItems(items) {
@@ -77,6 +77,64 @@ function sortEmailItems(items) {
 
     return left.localeCompare(right);
   });
+}
+
+function formatLondonDate(dateValue) {
+  const date = dateValue ? new Date(dateValue) : new Date();
+
+  return new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Europe/London",
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+  }).format(date);
+}
+
+function parseJsonValue(value) {
+  if (typeof value !== "string") {
+    return value;
+  }
+
+  try {
+    return JSON.parse(value);
+  } catch {
+    return value;
+  }
+}
+
+function parseFlags(value) {
+  const parsed = parseJsonValue(value);
+
+  return Array.isArray(parsed) ? parsed : [];
+}
+
+function normalizeOwnerId(value) {
+  const parsed = parseJsonValue(value);
+
+  if (
+    parsed === null ||
+    parsed === undefined ||
+    parsed === "null" ||
+    parsed === ""
+  ) {
+    return null;
+  }
+
+  return String(parsed);
+}
+
+function normalizeInputItem(item) {
+  return {
+    ...item,
+    ownerId: normalizeOwnerId(item.ownerId || item.owner_id),
+    anniversaryYears: Number(item.anniversaryYears || 0),
+    flags: parseFlags(item.flags),
+    weekLabel:
+      item.weekLabel ||
+      item.week_start_label ||
+      item.run_week_label ||
+      formatLondonDate(item.createdAt),
+  };
 }
 
 function talkingPointsHtml() {
@@ -191,6 +249,9 @@ function buildManagerHtml(items) {
   const contactLookupNeeded = items.filter((item) =>
     (item.flags || []).includes("contact_lookup_needed"),
   );
+  const multipleContacts = items.filter((item) =>
+    (item.flags || []).includes("multiple_contacts"),
+  );
   const conflictingOwners = items.filter((item) =>
     (item.flags || []).includes("conflicting_duplicate_owners"),
   );
@@ -213,13 +274,17 @@ function buildManagerHtml(items) {
   html += "<p><strong>Data quality flags:</strong></p><ul>";
   html += `<li>${missingOwner.length} deals with no owner assigned — ${missingOwner.map((item) => item.caskRef).join(", ") || "none"}</li>`;
   html += `<li>${conflictingOwners.length} casks where contact mapping was ambiguous (multiple deal duplicates with conflicting owners) — ${conflictingOwners.map((item) => item.caskRef).join(", ") || "none"}</li>`;
+  html += `<li>${multipleContacts.length} casks with multiple associated contacts — ${multipleContacts.map((item) => item.caskRef).join(", ") || "none"}</li>`;
   html += `<li>${contactLookupNeeded.length} casks with contact lookup needed — ${contactLookupNeeded.map((item) => item.caskRef).join(", ") || "none"}</li>`;
   html += "</ul>";
 
   return html;
 }
 
-const items = sortEmailItems($input.all().map((item) => item.json));
+const items = sortEmailItems(
+  $input.all().map((item) => normalizeInputItem(item.json)),
+);
+const weekLabel = items[0]?.weekLabel || formatLondonDate();
 const outputs = [];
 
 for (const [ownerId, broker] of Object.entries(BROKERS)) {
@@ -236,7 +301,7 @@ for (const [ownerId, broker] of Object.entries(BROKERS)) {
       emailType: "broker",
       ownerId,
       to: broker.email,
-      subject: brokerSubject(brokerItems),
+      subject: brokerSubject(weekLabel),
       html: buildBrokerHtml(broker, brokerItems),
       itemCount: brokerItems.length,
     },
@@ -247,7 +312,7 @@ outputs.push({
   json: {
     emailType: "manager",
     to: MANAGER_EMAIL,
-    subject: managerSubject(items),
+    subject: managerSubject(weekLabel),
     html: buildManagerHtml(items),
     itemCount: items.length,
   },

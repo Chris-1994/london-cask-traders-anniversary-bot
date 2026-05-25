@@ -1,3 +1,4 @@
+// Nodename: Build Email Payloads
 const BROKERS = {
   78019389: {
     name: "Ross Davis",
@@ -56,6 +57,26 @@ function brokerSubject(items) {
 
 function managerSubject(items) {
   return `Weekly anniversary roundup — week of ${items[0]?.anniversaryDate || ""}`;
+}
+
+function sortEmailItems(items) {
+  return [...items].sort((a, b) => {
+    const left = [
+      a.anniversarySortDate || "",
+      String(a.anniversaryYears || ""),
+      a.contactName || "",
+      a.caskRef || "",
+    ].join("|");
+
+    const right = [
+      b.anniversarySortDate || "",
+      String(b.anniversaryYears || ""),
+      b.contactName || "",
+      b.caskRef || "",
+    ].join("|");
+
+    return left.localeCompare(right);
+  });
 }
 
 function talkingPointsHtml() {
@@ -198,11 +219,13 @@ function buildManagerHtml(items) {
   return html;
 }
 
-const items = $input.all().map((item) => item.json);
+const items = sortEmailItems($input.all().map((item) => item.json));
 const outputs = [];
 
 for (const [ownerId, broker] of Object.entries(BROKERS)) {
-  const brokerItems = items.filter((item) => item.ownerId === ownerId);
+  const brokerItems = sortEmailItems(
+    items.filter((item) => item.ownerId === ownerId),
+  );
 
   if (brokerItems.length === 0) {
     continue;

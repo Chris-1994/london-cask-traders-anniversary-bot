@@ -1,9 +1,9 @@
 const BROKER_IDS = new Set([
-  "78019389",
-  "669879360",
-  "495523060",
-  "2098380599",
-  "270811372",
+  '78019389',
+  '669879360',
+  '495523060',
+  '2098380599',
+  '270811372',
 ]);
 
 const outputByRef = new Map();
@@ -14,54 +14,47 @@ function parseAmount(value) {
 }
 
 function extractCaskRef(dealname) {
-  const match = String(dealname || "").match(/—\s*(\d{6})\s*$/);
+  const match = String(dealname || '').match(/—\s*(\d{6})\s*$/);
   return match ? match[1] : null;
 }
 
 function getLondonDateParts(isoDate) {
   const date = new Date(isoDate);
 
-  const parts = new Intl.DateTimeFormat("en-GB", {
-    timeZone: "Europe/London",
-    year: "numeric",
-    month: "numeric",
-    day: "numeric",
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Europe/London',
+    year: 'numeric',
+    month: 'numeric',
+    day: 'numeric',
   }).formatToParts(date);
 
   const get = (type) => parts.find((part) => part.type === type)?.value;
 
   return {
-    year: Number(get("year")),
-    month: Number(get("month")),
-    day: Number(get("day")),
+    year: Number(get('year')),
+    month: Number(get('month')),
+    day: Number(get('day')),
   };
 }
 
 function getAnniversaryDisplayDate(month, day, anniversaryYear) {
   const date = new Date(Date.UTC(anniversaryYear, month - 1, day, 12, 0, 0));
 
-  return new Intl.DateTimeFormat("en-GB", {
-    timeZone: "Europe/London",
-    weekday: "short",
-    day: "numeric",
-    month: "short",
+  return new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Europe/London',
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
   }).format(date);
 }
 
-function getAnniversarySortDate(month, day, anniversaryYear) {
-  const monthText = String(month).padStart(2, "0");
-  const dayText = String(day).padStart(2, "0");
-
-  return `${anniversaryYear}-${monthText}-${dayText}`;
-}
-
 function getLondonCurrentYear() {
-  const parts = new Intl.DateTimeFormat("en-GB", {
-    timeZone: "Europe/London",
-    year: "numeric",
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Europe/London',
+    year: 'numeric',
   }).formatToParts(new Date());
 
-  return Number(parts.find((part) => part.type === "year")?.value);
+  return Number(parts.find((part) => part.type === 'year')?.value);
 }
 
 function shouldReplaceExisting(existing, candidate) {
@@ -113,12 +106,7 @@ for (const item of $input.all()) {
       anniversaryDate: getAnniversaryDisplayDate(
         dateParts.month,
         dateParts.day,
-        currentLondonYear,
-      ),
-      anniversarySortDate: getAnniversarySortDate(
-        dateParts.month,
-        dateParts.day,
-        currentLondonYear,
+        currentLondonYear
       ),
       anniversaryYears: currentLondonYear - dateParts.year,
       ownerId: props.hubspot_owner_id || null,
@@ -164,13 +152,13 @@ for (const deal of outputByRef.values()) {
   const flags = new Set(deal.flags || []);
 
   if (!deal.ownerId) {
-    flags.add("missing_owner");
+    flags.add('missing_owner');
   } else if (!BROKER_IDS.has(String(deal.ownerId))) {
-    flags.add("unknown_owner");
+    flags.add('unknown_owner');
   }
 
   if (deal.conflictingOwnerIds.length > 0) {
-    flags.add("conflicting_duplicate_owners");
+    flags.add('conflicting_duplicate_owners');
   }
 
   output.push({

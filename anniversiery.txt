@@ -1,0 +1,247 @@
+Freelancer Brief — Weekly "Cask Anniversary" Zap
+Zapier + HubSpot + Gmail
+Project type: One-off Zapier build
+Estimated effort: 4–6 hours for an experienced Zapier developer
+Deadline: ASAP
+
+
+About us
+London Cask Traders is a UK-based whisky cask brokerage. We use HubSpot as our CRM and Gmail for email. Every week we want our brokers to receive a briefing of which clients are hitting cask-purchase anniversaries that week, so the broker can call them for a relationship check-in.
+This brief is for building one scheduled Zap that automates the briefing.
+
+
+What we want built
+A single Zap, scheduled to run every Monday at 08:00 Europe/London, that does the following:
+Looks at all closed-won deals in HubSpot
+Identifies any deal whose closedate falls on the same calendar date in any prior year, within a 7-day forward window from today
+Groups results by the deal owner (the broker)
+Sends each of 5 named brokers an HTML email listing their clients whose anniversaries fall in the coming week
+Sends a manager (Oliver) one summary email covering all anniversaries across the team
+The output format is already designed and tested — see "Output format" below. You do not need to design the email; just build the Zap that produces it.
+
+
+Critical detail: the date logic
+This is the only non-trivial part of the build and the most common source of mistakes.
+For today's date T, the Zap must find every closed-won deal where:
+closedate.month-day is between T.month-day and (T + 7 days).month-day
+AND closedate.year < T.year
+In plain English: "If today is Monday 26 April 2026, find all deals that closed on 26 April – 3 May in any year before 2026."
+HubSpot's native "Find Deal" Zapier action does not support this filter directly. You have two viable approaches:
+Approach A (recommended): Use a Code by Zapier step that calls HubSpot's CRM Search API directly with a filterGroups payload that includes one filter group per prior year (we expect to look back at minimum 5 years, so 5 filter groups). HubSpot's CRM Search API supports BETWEEN operators on date properties.
+Approach B: Pull a wider set of deals (e.g. all closed-won deals from the last 6 years) and filter in JavaScript in a Code step. Simpler logic but pulls more data.
+Either is acceptable. Approach A is cleaner and faster.
+
+
+HubSpot details you'll need
+Portal ID: 25187088
+Object type: deals
+Stage filter: dealstage = "closedwon"
+Date property: closedate
+Owner property: hubspot_owner_id
+Other relevant properties: dealname, amount
+The five broker owner IDs are:
+Owner ID
+Name
+Email
+78019389
+Ross Davis
+ross@londoncasktraders.com
+669879360
+Omar Ismail
+omar@londoncasktraders.com
+495523060
+Andrew Parker
+andrew@londoncasktraders.com
+2098380599
+Joshua Lelan
+joshual@londoncasktraders.com
+270811372
+Alice Allen
+alice@londoncasktraders.com
+
+Manager email: oliver@londoncasktraders.com
+
+
+Critical data quality issue
+The HubSpot deal data has known duplicates. Many casks (e.g. cask reference 877361) appear as 2–4 separate deal records. The Zap must de-duplicate before producing emails, otherwise clients get listed multiple times.
+De-duplication rule: Each deal name follows the pattern [Distillery] Cask ([Description]) — [6-digit reference]. Parse the trailing 6-digit reference and treat that as the unique cask identifier. Keep one record per cask reference (use the highest amount to break ties).
+Example deal names:
+Bunnahabhain Cask (200L Ex-Bourbon Barrel) — 877351
+Glenrothes Cask (250L Hogshead Ex-Bourbon Barrel) — 877352
+Crabbie Bonnington Cask (200L Ex-Bourbon Barrel) — 877362
+Regex suggestion: /—\s*(\d{6})\s*$/ to extract the reference.
+
+
+Joining deals to contacts
+Each deal in HubSpot has associated contacts. The email needs to list the client name (from the contact), not the deal name. For each de-duplicated deal:
+Look up associated contacts via the HubSpot API (/crm/v3/objects/deals/{dealId}/associations/contacts)
+Take the primary contact (or first if there's only one)
+Pull firstname, lastname, phone, and the contact's HubSpot ID
+The contact's HubSpot ID is needed to construct a clickable link to their CRM record. The link format is:
+https://app.hubspot.com/contacts/25187088/record/0-1/{contactId}
+If a deal has no associated contact, list the cask reference and mark it as "contact lookup needed" rather than failing the whole run.
+⚠ CRITICAL — Pagination on the associations lookup
+This is the #1 mistake we've seen on this build. The HubSpot /crm/v3/objects/deals/{dealId}/associations/contacts endpoint and the search-with-associations endpoints both paginate by default at 100 records per page. If you query associated contacts for the whole batch of weekly deals in one call, you may silently get back fewer contacts than there actually are, with no error and no obvious truncation indicator. Some clients will appear missing when they aren't.
+Required handling:
+Always check the paging.next.after cursor in the response and follow it until exhausted
+Or query each deal's associated contacts individually (slower but safer)
+Add an assertion: if total in the response is greater than results.length, log a warning and paginate
+Test with a deal that has 5+ associated contacts to make sure your handler returns all of them
+We've already validated the test data: when querying associations for the full set of ~30 unique anniversary casks in a single call, the response caps at 45 contacts. The actual count is higher. Build for this.
+
+
+Output format — broker email
+Subject: Anniversary check-ins — week of [Day Mon] (e.g. "Anniversary check-ins — week of Mon 27 Apr")
+Body (HTML): Group the broker's clients by anniversary day, with a sub-grouping by anniversary year. Talking-point guide at the bottom. Example:
+<p>Hi Ross,</p>
+
+
+<p>You have a number of clients hitting cask anniversaries this week.</p>
+
+
+<p><strong>Sun 26 Apr — 3-year anniversaries</strong></p>
+<ul>
+  <li><strong><a href="https://app.hubspot.com/contacts/25187088/record/0-1/7189451">Sunil Birdi</a></strong>
+      — Bunnahabhain 200L Ex-Bourbon Barrel (ref 877351)
+      — 📞 +447957619414</li>
+</ul>
+
+
+<p><strong>Mon 27 Apr — 3-year anniversaries</strong></p>
+<ul>
+  <li><strong><a href="https://app.hubspot.com/contacts/25187088/record/0-1/6808051">Shaun Austin</a></strong>
+      — Cameronbridge 250L Ex-Bourbon Hogshead (ref 877357)
+      — 📞 07775807510</li>
+</ul>
+
+
+<p><strong>Talking-point guide:</strong></p>
+<ul>
+  <li><strong>1yr:</strong> First anniversary — quick check-in call. Confirm contact details and storage info still correct. Ask if they have any questions about their cask.</li>
+  <li><strong>2yr:</strong> Two years in. Light-touch hello, ask how they're doing, send a maturation update if available.</li>
+  <li><strong>3yr:</strong> Three years in. Send a maturation update if available. Ask how they're doing, whether they'd like to visit the warehouse or distillery, and confirm contact details are still current.</li>
+  <li><strong>4yr:</strong> Four-year check-in. Ask if they have any questions about how their cask is maturing. Offer a sample/regauge if they'd like one.</li>
+  <li><strong>5yr+:</strong> Major milestone. Send a maturation update. Ask how they're doing and whether they'd like a visit.</li>
+</ul>
+Special handling — clients with multiple casks closing the same day:
+Where one client has 2+ casks all closing on the same date, group them under one bullet for that client. Example:
+<li><strong><a href="...">Sam Fearon</a></strong>
+    — 5 casks all closing the same day
+    (Jura ref 878979, Glen Moray ref 878983, Aultmore ref 878982, Ardmore ref 878984, Jura ref 878985)
+    — 📞 07812443157
+    — single check-in covers all five</li>
+Important — language constraints:
+The talking-point guide above is the exact wording to use. Do not add any additional sales-oriented language ("sell," "exit," "review portfolio," "cross-sell," etc.). The brief is intentionally relationship-only.
+
+
+Output format — manager summary email
+Recipient: oliver@londoncasktraders.com
+Subject: Weekly anniversary roundup — week of [Day Mon DD]
+Body (HTML):
+<p>Hi Oliver,</p>
+
+
+<p><strong>Total anniversaries this week:</strong> [N] unique casks across 5 brokers</p>
+
+
+<p><strong>Cohort breakdown:</strong></p>
+<ul>
+  <li>1-year: [N] casks</li>
+  <li>2-year: [N] casks</li>
+  <li>3-year: [N] casks</li>
+  <li>4-year: [N] casks</li>
+  <li>5-year+: [N] casks</li>
+</ul>
+
+
+<p><strong>Per-broker capacity:</strong></p>
+<ul>
+  <li>Ross Davis — [N] check-ins</li>
+  <li>Joshua Lelan — [N] check-ins</li>
+  <li>Omar Ismail — [N] check-ins</li>
+  <li>Andrew Parker — [N] check-ins</li>
+  <li>Alice Allen — [N] check-ins</li>
+</ul>
+
+
+<p><strong>Data quality flags:</strong></p>
+<ul>
+  <li>[N] deals with no owner assigned — list cask references</li>
+  <li>[N] casks where contact mapping was ambiguous (multiple deal duplicates with conflicting owners) — list cask references</li>
+</ul>
+
+
+Required Zap structure (suggested)
+Trigger — Schedule by Zapier → Every Week → Monday 08:00 Europe/London
+Code by Zapier (JavaScript) — Build the date-range payload, call HubSpot CRM Search API, return the filtered+deduped deal list with associated contacts
+Code by Zapier (JavaScript) — Group deals by broker, build the HTML body for each of the 5 broker emails plus the manager summary
+Gmail — Send Email (×6, one per broker plus manager) using a Looping by Zapier or 6 sequential paths
+Alternative: A single all-in-one Code by Zapier step that does everything except the email send, then 6 Gmail sends. This is simpler but less observable.
+
+
+Acceptance criteria (test before final delivery)
+The build is complete when all of these pass:
+Zap runs successfully on a manual trigger and produces all 6 emails
+Anniversary date matching is correct: every deal returned closed on a date between today and today+7 days, in a prior year
+De-duplication works: no client appears twice for the same cask reference
+Contact links open the correct HubSpot record in the test browser
+Phone numbers display with no formatting errors (UK numbers like +447... and 07... should both render)
+Brokers with zero anniversaries that week receive no email (not an empty one)
+Manager always receives a summary, even if total anniversaries = 0 (with body "No anniversaries this week")
+The manager summary's per-broker counts match the totals in each broker's email exactly
+A single test run on Sunday 26 April 2026 produces approximately 30 unique casks across 5 brokers (we have already manually verified this number — it's our baseline)
+Schedule trigger is set to Monday 08:00 Europe/London and confirmed live
+Pagination test: when querying associated contacts, if 50+ contacts are expected, all are returned (not silently capped at 45 or 100)
+Multi-cask consolidation: when one client has 2+ casks closing in the same week, they appear as a single bullet in their broker's email listing all relevant cask references — not as N separate bullets (see "Multi-cask clients" below)
+Manager summary "data quality" section: every cask that ended up flagged as ‘contact lookup needed' in any broker email is also listed by reference in the manager summary's data quality section, so the manager can chase the missing contact link
+
+
+Multi-cask clients (consolidation rule)
+When a single client holds multiple casks with anniversaries in the same week, they should appear in their broker's email as one bullet, not multiple. List all relevant cask references inline. Example:
+<li><strong><a href="...">Lloyd Seagrove</a></strong>
+    — 2 casks (Bunnahabhain 200L First-Fill ref 877355 closing 27 Apr,
+              Crabbie Bonnington 200L ref 877367 closing 1 May)
+    — 📞 +447882743097
+    — single check-in covers both</li>
+Identify multi-cask clients by grouping the de-duplicated casks by associated contact ID (not contact name — names can be ambiguous). The "single check-in covers all" wording is intentional and should be included verbatim, so the broker knows not to make multiple calls.
+
+
+Things to test for and watch out for
+These are the gotchas that have caught us out already:
+The associations API paginates silently. Already covered above, but worth repeating: this is the most likely failure mode. A response of 45 contacts when 50 exist returns no error. Always paginate or batch-per-deal.
+HubSpot stores closedate as ISO 8601 with a 23:00:00Z timestamp (UK time offset). Match by date, not by full timestamp.
+Date arithmetic across year boundaries: if the Zap runs on, say, 30 December and looks 7 days forward, it will need to query both December and January in prior years. Not relevant for most weeks but worth handling.
+Gmail's API silently drops emails when the auth token is stale. Add an error notification — if a Gmail send fails, send a failure alert to oliver@londoncasktraders.com via a backup channel (or surface in Zapier's task history).
+HubSpot rate limits: if pulling associations for 30+ deals one by one, batch where possible. The CRM Batch API supports up to 100 reads per call.
+Some deals have no hubspot_owner_id: route these to the manager's data-quality flag list rather than dropping them.
+One specific deal (Auchentoshan, ref 878988) currently has no owner — confirm it shows up in the data quality flags on the first run.
+
+
+What we'll provide on day 1
+HubSpot OAuth or private app access (we'll generate a private app token scoped to deals + contacts read)
+Zapier account access (sub-user invite, or screen share session)
+Gmail account access for the sending mailbox
+A copy of this brief and the test email format we've already validated
+What we want from you on delivery
+The live Zap, named "Cask Anniversary Bot"
+A short Loom video (5–10 min) walking through how it works, where each step is, and how to pause/edit it
+A 1-page README in plain English explaining how to add or remove brokers, change the schedule, or update the talking points
+14 days of post-delivery support for any bugs surfaced in the first two scheduled runs
+
+
+Out of scope (for clarity)
+Designing or rewording the email content (it's already finalised)
+Building HubSpot tasks or any non-email actions (might be a future phase)
+Building a similar bot for client-facing emails (definitely not — this is internal only)
+Any work on the underlying CRM duplicate-deal cleanup (we'll do that separately)
+
+
+Questions to ask in your proposal
+Please include answers to these in your proposal so we can compare quotes:
+Will you use Approach A (HubSpot CRM Search API) or Approach B (filter in JS)?
+How will you handle the case where a Gmail send fails partway through a run?
+How will you make the talking-point guide editable without re-deploying the Zap?
+What's your fixed price and turnaround?
+
+
+Brief prepared with assistance from Claude. Any questions, contact Oliver at oliver@londoncasktraders.com.

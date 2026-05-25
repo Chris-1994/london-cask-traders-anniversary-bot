@@ -48,6 +48,13 @@ function getAnniversaryDisplayDate(month, day, anniversaryYear) {
   }).format(date);
 }
 
+function getAnniversarySortDate(month, day, anniversaryYear) {
+  const monthText = String(month).padStart(2, "0");
+  const dayText = String(day).padStart(2, "0");
+
+  return `${anniversaryYear}-${monthText}-${dayText}`;
+}
+
 function getLondonCurrentYear() {
   const parts = new Intl.DateTimeFormat("en-GB", {
     timeZone: "Europe/London",
@@ -104,6 +111,11 @@ for (const item of $input.all()) {
       closedate: props.closedate,
       closeYear: dateParts.year,
       anniversaryDate: getAnniversaryDisplayDate(
+        dateParts.month,
+        dateParts.day,
+        currentLondonYear,
+      ),
+      anniversarySortDate: getAnniversarySortDate(
         dateParts.month,
         dateParts.day,
         currentLondonYear,

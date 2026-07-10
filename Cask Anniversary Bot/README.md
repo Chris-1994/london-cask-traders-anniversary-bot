@@ -45,11 +45,34 @@ Flow 2 should normally be run from the saved anniversary rows created by Flow 1.
 
 ## How to add or remove brokers
 
-There are two places to update brokers.
+Brokers are loaded automatically from the HubSpot team:
 
-First, update the `BROKER_IDS` list in the `Dedupe Deals and Calculate Anniversary Dates` node. This controls which HubSpot owner IDs count as known brokers.
+```text
+Loaders (Repeat Business Reps)
+Team ID: 167787456
+```
 
-Second, update the `BROKERS` object in the `Build Email Payloads` node. This controls the broker name, first name, and email address used in outgoing emails.
+To add or remove a broker, update that person's team membership in HubSpot. Do not edit a broker ID list in the workflow.
+
+Both workflows that need broker details must include a node named:
+
+```text
+Get Sales Reps
+```
+
+That node should return one item per current Loaders rep, with these fields:
+
+```text
+broker_id
+email
+first_name
+last_name
+team_id
+```
+
+The `Dedupe Deals and Calculate Anniversary Dates` node uses `broker_id` values from `Get Sales Reps` to decide which deal owners are known broker owners.
+
+The `Build Email Payloads` node uses `broker_id`, name, and email values from `Get Sales Reps` to decide who receives broker emails and what email address to use.
 
 Each broker needs:
 
@@ -58,9 +81,13 @@ Each broker needs:
 - First name
 - Email address
 
+If a broker is added to Loaders, they are picked up automatically on the next run.
+
+If a broker is removed from Loaders, they stop receiving broker emails on the next run.
+
 If a deal has no owner, it is not sent to a broker. It is listed in Oliver's manager summary under data-quality flags.
 
-If a deal has an owner ID that is not in the broker list, it is flagged as `unknown_owner`.
+If a deal has an owner ID that is not in the current Loaders team, it is not sent to a broker. It is listed in Oliver's manager summary under data-quality flags.
 
 ## How to update the talking points
 
@@ -92,6 +119,7 @@ The summary includes:
 The data-quality section lists casks with:
 
 - Missing owner
+- Owner outside current Loaders team
 - Conflicting duplicate owners
 - Multiple associated contacts
 - Contact lookup needed

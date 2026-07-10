@@ -9,15 +9,21 @@ Trigger
 Schedule trigger: Monday to Friday, 7:30 AM Europe/London timezone.
 Workflow Logic
 Step 1 — Get the rep list dynamically from HubSpot
+
 Do not hardcode the list of reps. Instead, query the HubSpot Account Managers team (team ID 163861030) at the start of each run and pull all current members. This means when reps join or leave the team, the automation adapts automatically with no code changes.
 For each member, retrieve: ownerId, firstName, lastName, and email. The email comes from the HubSpot Users object via the hs_email property — owner search alone won’t return it, so the workflow needs a follow-up call to fetch user details.
+
 Step 2 — For each rep, pull from HubSpot:
 Open deals (top 3 to 5 by value or closest close date) for the priority calls section. Filter: hubspot_owner_id = {ownerId} and hs_is_closed = false.
+
 Stale deals — same filter as open deals, but with closedate in the past, or notes_last_contacted older than 60 days.
+
 Uncontacted leads — contacts where hubspot_owner_id = {ownerId} and notes_last_contacted is empty. Sort by createdate descending. Limit 15.
+
 Month-to-date closed-won total — deals where hubspot_owner_id = {ownerId}, dealstage is in ["2563529956", "2601372909", "closedwon"], and closedate is in the current calendar month. Sum the amount field.
 HubSpot pipelines in use: default and 1884973302.
 Closed-won stage IDs: 2563529956, 2601372909, closedwon.
+
 Step 3 — Send to Claude API
 Anthropic Claude API, model claude-sonnet-4-7 (sufficient for this task and cost-effective).
 The prompt should include:
@@ -28,15 +34,20 @@ The 3 priority calls with deal name, value, HubSpot link, and a short “why” 
 The stale deals list (up to 10 highest-value)
 The uncontacted leads list (up to 15 most recent, with names, phone numbers, and assignment age)
 Claude returns a fully-formed HTML email body following the structure in the attached example.
+
+
 Step 4 — Create Gmail draft
 Or auto-send, configurable via toggle. Email is addressed to the rep’s email with the Claude-generated HTML body.
 Step 5 — Logging and error handling
 If any step fails for one rep, log the error and continue with the others. Send a summary email to the manager at the end of each run with successes and failures.
+
 Constants to Configure
 Monthly revenue target per rep: £35,000 (configurable, single variable)
 HubSpot Account Managers team ID: 163861030
 HubSpot contact URL pattern: https://app.hubspot.com/contacts/25187088/record/0-1/{contact_id}
 HubSpot deal URL pattern: https://app.hubspot.com/contacts/25187088/record/0-3/{deal_id}
+
+
 Email Structure Claude Must Produce
 The email follows this order:
 Greeting
@@ -50,6 +61,8 @@ A fully-rendered example email will be attached to this brief. Claude should mat
 Bold section headings, no dashes around headings
 HubSpot hyperlinks on every contact and deal name
 Coloured callout blocks for emphasis on monthly target performance and the lead reassignment warning
+
+
 Tech Stack
 Zapier or n8n — freelancer’s choice. n8n preferred (cheaper at this volume, more flexible, can be self-hosted). Either is acceptable.
 HubSpot API (existing connection)

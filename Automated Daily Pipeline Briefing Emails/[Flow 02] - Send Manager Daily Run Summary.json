@@ -1,0 +1,123 @@
+{
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "50 7 * * 1-5"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [0, 0],
+      "id": "3ef7d65c-d6f4-469c-b920-1939c1a41582",
+      "name": "Start Manager Summary"
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "value": "8HZDLdL9gQUDwETS",
+          "mode": "list",
+          "cachedResultName": "Briefing Run Log",
+          "cachedResultUrl": "/projects/whUv9Mwz7WJ7hkC5/datatables/8HZDLdL9gQUDwETS"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "run_date",
+              "keyValue": "={{ $now.format('cccc d MMMM') }}"
+            }
+          ]
+        },
+        "returnAll": true
+      },
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [224, 0],
+      "id": "4484eb3b-4a32-4765-b0b5-e2d3e10564e1",
+      "name": "Get Daily Run Log"
+    },
+    {
+      "parameters": {
+        "jsCode": "// nodename: Build Manager Summary\nconst rows = $input.all().map(item => item.json);\n\nconst doneReps    = rows.filter(r => r.status === \"done\");\nconst pendingReps = rows.filter(r => r.status !== \"done\");\nconst allDone     = pendingReps.length === 0;\n\nfunction listHtml(items) {\n  const lis = items\n    .map(r => `<li style=\"margin-bottom:4px;\">${r.rep_name}</li>`)\n    .join(\"\");\n  return `<ul style=\"font-family:Arial,sans-serif;font-size:14px;color:#222;padding-left:20px;\">${lis}</ul>`;\n}\n\nlet html = `<p style=\"font-family:Arial,sans-serif;font-size:15px;color:#222;\">Good morning,</p>`;\nlet subject;\n\nif (allDone) {\n  subject = \"Daily briefing run complete\";\n  html += `<p style=\"font-family:Arial,sans-serif;font-size:15px;color:#222;\">Today's pipeline briefings have all been sent successfully.</p>`;\n  html += `<p style=\"font-family:Arial,sans-serif;font-size:15px;color:#222;\"><strong>${doneReps.length} Account Managers briefed:</strong></p>`;\n  html += listHtml(doneReps);\n} else {\n  subject = `Action needed - ${pendingReps.length} briefing(s) did not complete`;\n  html += `<div style=\"border-left:4px solid #d32f2f;background:#fdecea;padding:14px 18px;margin:0 0 16px 0;\">\n    <p style=\"font-family:Arial,sans-serif;font-size:14px;color:#b71c1c;margin:0;\"><strong>Attention:</strong> ${pendingReps.length} of ${rows.length} briefings did not complete and need a rerun.</p>\n  </div>`;\n  html += `<p style=\"font-family:Arial,sans-serif;font-size:15px;color:#222;\"><strong>Sent (${doneReps.length}):</strong></p>`;\n  html += listHtml(doneReps);\n  html += `<p style=\"font-family:Arial,sans-serif;font-size:15px;color:#222;\"><strong>Not completed (${pendingReps.length}):</strong></p>`;\n  html += listHtml(pendingReps);\n}\n\nreturn [{ json: { allDone, subject, emailHtml: html } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [448, 0],
+      "id": "49238c39-5765-447f-b219-33fd99577591",
+      "name": "Build Manager Summary"
+    },
+    {
+      "parameters": {
+        "sendTo": "oliver@londoncasktraders.com",
+        "subject": "={{ $json.subject }}",
+        "message": "={{ $json.emailHtml }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [640, 0],
+      "id": "5bdc5b1e-0d8c-4aed-be28-735fcde63ad8",
+      "name": "Send Summary (Gmail)",
+      "webhookId": "a2f616c0-f565-4f1c-b1a1-9942ca53b68e",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "dUTAmPuyU5GLEWy8",
+          "name": "Oliver"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Start Manager Summary": {
+      "main": [
+        [
+          {
+            "node": "Get Daily Run Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Daily Run Log": {
+      "main": [
+        [
+          {
+            "node": "Build Manager Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Manager Summary": {
+      "main": [
+        [
+          {
+            "node": "Send Summary (Gmail)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Summary (Gmail)": {
+      "main": [[]]
+    }
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "08e5a236c406fc6d4752b988965342ab48ca500efa7b35caf6e86cba76637988"
+  }
+}

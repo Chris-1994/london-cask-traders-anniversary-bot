@@ -4,7 +4,6 @@ Recommended Structure
 
 cask-anniversary/
 config/
-brokers.csv
 talking_points.html
 state/
 runs.csv
@@ -14,14 +13,6 @@ raw/
 <run_id>-hubspot-search.json
 CSV Files
 
-brokers.csv
-
-owner_id,name,email,enabled
-78019389,Ross Davis,ross@londoncasktraders.com,true
-669879360,Omar Ismail,omar@londoncasktraders.com,true
-495523060,Andrew Parker,andrew@londoncasktraders.com,true
-2098380599,Joshua Lelan,joshual@londoncasktraders.com,true
-270811372,Alice Allen,alice@londoncasktraders.com,true
 runs.csv: one row per weekly execution.
 
 run_id,run_date,window_start,window_end,status,total_unique_casks,emails_sent,error,created_at,completed_at
@@ -67,8 +58,10 @@ Parse cask reference from dealname using the trailing 6-digit reference.
 Deduplicate by cask_ref.
 If duplicates exist, keep the record with the highest amount.
 If duplicate records have conflicting owners, keep the chosen deal but add a manager flag.
-Map owner IDs to the five brokers.
-Deals with missing or unknown owners should not disappear; mark them as data-quality flags for Oliver.
+Load current broker owner IDs from the Get Sales Reps node.
+Only deals owned by current Loaders reps should be sent to broker emails.
+Deals with missing owners should not disappear; mark them as data-quality flags for Oliver.
+Deals owned by people outside the current Loaders group should not be sent to broker emails; keep them in Oliver's data-quality summary as unknown owners.
 For associations, use the batch associations API where practical, but still paginate per deal/object because HubSpot association reads can include a per-object after cursor. (developers.hubspot.com) HubSpot’s deals guide also confirms deal batch reads do not retrieve associations directly, so associations need a separate API path. (developers.hubspot.com)
 
 Then:
@@ -86,7 +79,7 @@ Workflow 3: Build Email Payloads
 This workflow should not send anything. It should only create email bodies and pending email-log rows.
 
 Read anniversary_items.csv for the current run_id.
-Read brokers.csv.
+Read current broker details from the Get Sales Reps node.
 Read talking_points.html, so the talking-point guide is editable without changing the workflow.
 Group valid items by broker.
 Inside each broker, group by anniversary date and anniversary cohort.

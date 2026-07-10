@@ -1,0 +1,723 @@
+{
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "30 7 * * 1-5"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [-928, 688],
+      "id": "e131d4a3-f229-466e-8ac5-75f415568dad",
+      "name": "Start Weekday Briefing"
+    },
+    {
+      "parameters": {
+        "url": "https://api.hubapi.com/crm/v3/owners?limit=100&archived=false",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "hubspotAppToken",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "limit",
+              "value": "100"
+            },
+            {
+              "name": "archived",
+              "value": "false"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [-400, 688],
+      "id": "7256263f-1bad-4656-80bd-d5789095f815",
+      "name": "Get HubSpot Owners",
+      "credentials": {
+        "hubspotAppToken": {
+          "id": "l9FMdcBXfJ4sF5nq",
+          "name": "HubSpot account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "results",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [-160, 688],
+      "id": "7e2299bb-a047-4cb7-a9f3-5bf47274040c",
+      "name": "Split Owners List"
+    },
+    {
+      "parameters": {
+        "jsCode": "// nodename: Filter to Account Managers team\nconst ACCOUNT_MANAGERS_TEAM_ID = \"163861030\";\n\nconst reps = $input.all()\n  .map(item => item.json)\n  .filter(owner =>\n    Array.isArray(owner.teams) &&\n    owner.teams.some(team => team.id === ACCOUNT_MANAGERS_TEAM_ID)\n  )\n  .map(owner => ({\n    ownerId:   owner.id,\n    firstName: owner.firstName,\n    lastName:  owner.lastName,\n    email:     owner.email,\n  }));\n\n// One n8n item per rep so the rest of the workflow loops automatically\nreturn reps.map(rep => ({ json: rep }));\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [80, 688],
+      "id": "4c97658d-b105-4dc7-b845-f4e5ca38ca1a",
+      "name": "Filter Account Managers"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [880, 688],
+      "id": "b4d4742f-36e3-4cab-aed4-8470ae6a0be5",
+      "name": "Loop Over Reps"
+    },
+    {
+      "parameters": {
+        "jsCode": "// nodename: Bucket open deals (priority + stale)\nconst STALE_DAYS   = 60;\nconst PRIORITY_MAX = 5;\nconst STALE_MAX    = 10;\nconst DEAL_URL     = \"https://app-eu1.hubspot.com/contacts/25187088/record/0-3/\";\n\nconst now            = new Date();\nconst staleThreshold = new Date(now.getTime() - STALE_DAYS * 24 * 60 * 60 * 1000);\n\n// Handle both shapes: one item with a results wrapper, OR n8n split into per-deal items\nlet rawDeals;\nconst firstJson = $input.first().json;\nif (Array.isArray(firstJson.results)) {\n  rawDeals = firstJson.results;\n} else {\n  rawDeals = $input.all().map(item => item.json);\n}\n\nfunction shapeDeal(deal) {\n  const props = deal.properties || {};\n  return {\n    dealId:        deal.id,\n    dealName:      props.dealname || \"(unnamed deal)\",\n    amount:        props.amount ? Number(props.amount) : 0,\n    closeDate:     props.closedate || null,\n    lastContacted: props.notes_last_contacted || null,\n    dealStage:     props.dealstage || null,\n    link:          deal.url || (DEAL_URL + deal.id),\n  };\n}\n\nconst allDeals = rawDeals.map(shapeDeal);\n\n// Priority calls: highest-value open deals (search already sorted by amount desc)\nconst priorityCalls = allDeals.slice(0, PRIORITY_MAX);\n\n// Stale: close date already in the past OR not contacted in over 60 days\nconst staleDeals = allDeals\n  .filter(deal => {\n    const closeIsPast   = deal.closeDate     && new Date(deal.closeDate)     < now;\n    const contactIsCold = deal.lastContacted && new Date(deal.lastContacted) < staleThreshold;\n    return closeIsPast || contactIsCold;\n  })\n  .sort((a, b) => b.amount - a.amount)\n  .slice(0, STALE_MAX);\n\nreturn [{\n  json: {\n    priorityCalls,\n    staleDeals,\n  }\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1344, 704],
+      "id": "74e6d33a-f88c-4f17-9ca2-596ef5d1e65a",
+      "name": "Build Deal Buckets"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.hubapi.com/crm/v3/objects/deals/search",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "hubspotAppToken",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"filterGroups\": [\n    {\n      \"filters\": [\n        {\n          \"propertyName\": \"hubspot_owner_id\",\n          \"operator\": \"EQ\",\n          \"value\": \"{{ $json.owner_id }}\"\n        },\n        {\n          \"propertyName\": \"hs_is_closed\",\n          \"operator\": \"EQ\",\n          \"value\": \"false\"\n        }\n      ]\n    }\n  ],\n  \"properties\": [\n    \"dealname\",\n    \"amount\",\n    \"closedate\",\n    \"dealstage\",\n    \"notes_last_contacted\",\n    \"pipeline\",\n    \"hubspot_owner_id\"\n  ],\n  \"sorts\": [\n    {\n      \"propertyName\": \"amount\",\n      \"direction\": \"DESCENDING\"\n    }\n  ],\n  \"limit\": 100\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [1136, 704],
+      "id": "127f1e37-ed1b-4a65-bc46-9b3a2975ce05",
+      "name": "Get Open Deals",
+      "credentials": {
+        "hubspotAppToken": {
+          "id": "l9FMdcBXfJ4sF5nq",
+          "name": "HubSpot account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// nodename: Shape uncontacted leads\nconst CONTACT_URL = \"https://app-eu1.hubspot.com/contacts/25187088/record/0-1/\";\nconst now = new Date();\n\nlet rawContacts;\nconst firstJson = $input.first().json;\nif (Array.isArray(firstJson.results)) {\n  rawContacts = firstJson.results;\n} else {\n  rawContacts = $input.all().map(item => item.json);\n}\n\nfunction daysSince(dateString) {\n  if (!dateString) return null;\n  const then = new Date(dateString);\n  return Math.floor((now.getTime() - then.getTime()) / (24 * 60 * 60 * 1000));\n}\n\nfunction shapeContact(contact) {\n  const props = contact.properties || {};\n  const firstName = props.firstname || \"\";\n  const lastName  = props.lastname || \"\";\n  const fullName  = (firstName + \" \" + lastName).trim() || \"(no name)\";\n  const assignedDate = props.hubspot_owner_assigneddate || props.createdate || null;\n\n  return {\n    contactId:         contact.id,\n    name:              fullName,\n    phone:             props.phone || props.mobilephone || null,\n    assignmentAgeDays: daysSince(assignedDate),\n    createdate:        props.createdate || null,\n    link:              contact.url || (CONTACT_URL + contact.id),\n  };\n}\n\nconst uncontactedLeads = rawContacts.map(shapeContact);\n\nreturn [{ json: { uncontactedLeads } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1760, 704],
+      "id": "91e7e6a0-3291-4156-be07-2eeb30bc9fe6",
+      "name": "Shape Uncontacted Leads"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.hubapi.com/crm/v3/objects/contacts/search",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "hubspotAppToken",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"filterGroups\": [\n    {\n      \"filters\": [\n        {\n          \"propertyName\": \"hubspot_owner_id\",\n          \"operator\": \"EQ\",\n          \"value\": \"{{ $('Loop Over Reps').item.json.owner_id }}\"\n        },\n        {\n          \"propertyName\": \"notes_last_contacted\",\n          \"operator\": \"NOT_HAS_PROPERTY\"\n        }\n      ]\n    }\n  ],\n  \"properties\": [\n    \"firstname\",\n    \"lastname\",\n    \"phone\",\n    \"mobilephone\",\n    \"createdate\",\n    \"hubspot_owner_assigneddate\",\n    \"hubspot_owner_id\"\n  ],\n  \"sorts\": [\n    {\n      \"propertyName\": \"createdate\",\n      \"direction\": \"DESCENDING\"\n    }\n  ],\n  \"limit\": 15\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [1552, 704],
+      "id": "9c79d08b-ba5d-4fe4-b462-502c150c75a2",
+      "name": "Get Uncontacted Leads",
+      "credentials": {
+        "hubspotAppToken": {
+          "id": "l9FMdcBXfJ4sF5nq",
+          "name": "HubSpot account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.hubapi.com/crm/v3/objects/deals/search",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "hubspotAppToken",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"filterGroups\": [\n    {\n      \"filters\": [\n        {\n          \"propertyName\": \"hubspot_owner_id\",\n          \"operator\": \"EQ\",\n          \"value\": \"{{ $('Loop Over Reps').item.json.owner_id }}\"\n        },\n        {\n          \"propertyName\": \"dealstage\",\n          \"operator\": \"IN\",\n          \"values\": [\n            \"2563529956\",\n            \"2601372909\",\n            \"closedwon\"\n          ]\n        },\n        {\n          \"propertyName\": \"closedate\",\n          \"operator\": \"BETWEEN\",\n          \"value\": \"{{ $now.setZone('Europe/London').startOf('month').toMillis() }}\",\n          \"highValue\": \"{{ $now.setZone('Europe/London').endOf('month').toMillis() }}\"\n        }\n      ]\n    }\n  ],\n  \"properties\": [\n    \"dealname\",\n    \"amount\",\n    \"closedate\",\n    \"dealstage\"\n  ],\n  \"limit\": 100\n}\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [1968, 704],
+      "id": "47a7ba8e-c483-4dae-badd-00c0d2da136f",
+      "name": "Get MTD Closed Won",
+      "credentials": {
+        "hubspotAppToken": {
+          "id": "l9FMdcBXfJ4sF5nq",
+          "name": "HubSpot account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// nodename: Build Claude Payload\nconst MONTHLY_TARGET = 35000;\n\n// --- Current rep (this loop iteration) ---\nconst rep = $('Loop Over Reps').item.json;\n\n// --- Priority + stale deals (from the bucket node) ---\nconst deals         = $('Build Deal Buckets').item.json;\nconst priorityCalls = deals.priorityCalls || [];\nconst staleDeals    = deals.staleDeals    || [];\n\n// --- Uncontacted leads (from the shaping node) ---\nconst uncontactedLeads = $('Shape Uncontacted Leads').item.json.uncontactedLeads || [];\n\n// --- MTD closed-won: sum the raw search result (this node's direct input) ---\nconst mtd = $input.first().json;\nlet closedWonDeals = [];\nlet capHit = false;\nif (Array.isArray(mtd.results)) {\n  closedWonDeals = mtd.results;\n  // Brief requires the figure to match HubSpot exactly - flag if more deals exist than we pulled\n  if (typeof mtd.total === \"number\" && mtd.total > closedWonDeals.length) {\n    capHit = true;\n  }\n}\n\nlet closedWonTotal = 0;\nfor (const deal of closedWonDeals) {\n  const props = deal.properties || {};\n  if (props.amount) {\n    closedWonTotal = closedWonTotal + Number(props.amount);\n  }\n}\n\nlet percentOfTarget = 0;\nif (MONTHLY_TARGET > 0) {\n  percentOfTarget = Math.round((closedWonTotal / MONTHLY_TARGET) * 100);\n}\n\n// --- Days left in the month, London time ---\nconst nowLondon = DateTime.now().setZone(\"Europe/London\");\nconst daysLeft  = Math.floor(nowLondon.endOf(\"month\").diff(nowLondon, \"days\").days);\n\nreturn [{\n  json: {\n    rep: {\n      ownerId:$('Loop Over Reps').first().json.owner_id,   \n      first_name:$('Loop Over Reps').first().json.first_name,\n      email:$('Loop Over Reps').first().json.email ,\n    },\n    target: {\n      closedWonTotal,\n      monthlyTarget:  MONTHLY_TARGET,\n      percentOfTarget,\n      daysLeft,\n      capHit,\n    },\n    priorityCalls,\n    staleDeals,\n    uncontactedLeads,\n  }\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2176, 704],
+      "id": "19bcfaa8-794e-46c8-9ca2-7d2b915055ce",
+      "name": "Build Claude Payload"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=# IDENTITY\nYou are an HTML email generation service for London Cask Traders. You convert one Account Manager's pipeline data, provided as a JSON object below, into the raw HTML body of a single daily briefing email written from their sales manager. You are a machine interface, not a conversational assistant. Your entire response is the HTML body and nothing else.\n\n# INPUT DATA\nThe rep data is a single JSON object with this shape:\n- rep.firstName: the rep's first name\n- target.closedWonTotal: month-to-date closed-won total in GBP (a number)\n- target.monthlyTarget: the monthly target in GBP (35000)\n- target.percentOfTarget: closed-won as a whole-number percent of target\n- target.daysLeft: days remaining in the current month\n- priorityCalls: array of up to 5 open deals. Each has dealName, amount, link, closeDate, lastContacted\n- staleDeals: array of up to 10 cold or overdue open deals. Each has dealName, amount, link, closeDate, lastContacted\n- uncontactedLeads: array of up to 15 leads. Each has name, phone, assignmentAgeDays, link\n\nAll amounts are numbers in GBP. Every link value is a full HubSpot record URL.\n\n# EMAIL STRUCTURE (this exact order)\n1. Greeting: \"Hi {firstName},\" followed by one short framing sentence.\n2. Monthly target block: a coloured callout showing closedWonTotal against monthlyTarget, the percentOfTarget, and daysLeft remaining.\n3. Today's priority calls: bold heading. For each priority call, show the deal name as a HubSpot hyperlink, the value formatted as money, and one short \"why call them today\" reason inferred from the data (high value, close date approaching, or recent activity).\n4. Stale deals: bold heading. List highest value first. For each, show the deal name hyperlinked, the value, and how long since last contact.\n5. Uncontacted leads: bold heading, immediately followed by a RED callout warning that leads left uncontacted risk reassignment. Then list each lead: name hyperlinked, phone number, and assignment age in days.\n6. Reminders: bold heading with 2 to 3 short standard reminders (keep HubSpot updated, log every contact, prioritise stale deals).\n7. Sign-off: exactly \"Have a strong day.\" on one line, then \"Kind regards,\" on the next line. Do NOT add a name or signature after it.\n\n# FORMATTING RULES\n- Use email-safe HTML with inline CSS only. No style blocks, no external classes.\n- Section headings are bold plain text. Do not put dashes or symbols around them.\n- Every deal name and every lead name must be an anchor link to its HubSpot URL from the data.\n- Format money as a pound sign with thousands separators and no decimals. 35000 becomes £35,000.\n- Callout blocks are a padded box with a coloured left border and a tinted background:\n  - Green: border #2e7d32, background #edf7ed\n  - Amber: border #ed6c02, background #fff4e5\n  - Red: border #d32f2f, background #fdecea\n- Choose the monthly target block colour from percentOfTarget: 90 or above is green, 50 to 89 is amber, below 50 is red.\n\n# EMPTY STATES\n- If priorityCalls is empty, write \"No open priority deals today.\" under the heading.\n- If staleDeals is empty, write \"No stale deals. Your pipeline is current.\"\n- If uncontactedLeads is empty, omit the red warning and write \"No uncontacted leads. Well done.\"\n\n# REP DATA (generate the email from this)\n{{ JSON.stringify($json) }}\n\n# CRITICAL OUTPUT RULES\n- Output ONLY the raw HTML body.\n- The very first character of your response must be the < character.\n- Do NOT wrap the output in markdown.\n- Do NOT use code blocks or backticks.\n- Do NOT write any text, explanation, or commentary before or after the HTML.\n- Do NOT include html, head, or body wrapper tags. Output only the inner body content. Gmail supplies the wrapper.\n- End your output with the sign-off. The manager's Gmail signature appends automatically.\n",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [2384, 704],
+      "id": "e6b46a62-8c79-4d8c-81cb-08f82babfec6",
+      "name": "AI Agent"
+    },
+    {
+      "parameters": {
+        "model": "anthropic/claude-sonnet-4.6",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenRouter",
+      "typeVersion": 1,
+      "position": [2352, 912],
+      "id": "1dd47f02-160c-47de-85ab-0d77354e2516",
+      "name": "OpenRouter Chat Model",
+      "credentials": {
+        "openRouterApi": {
+          "id": "FH0E39H2gzYAQf1B",
+          "name": "Londoncasktraders"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $('Test Mode').item.json.TEST_MODE ? 'oliver@londoncasktraders.com' : $('Build Claude Payload').item.json.rep.email }}",
+        "subject": "=Your daily pipeline briefing - {{ $now.format('cccc d MMMM') }}",
+        "message": "={{ $json.output }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [2784, 704],
+      "id": "b3d328d4-87cd-4fb1-b5c2-d77b2829ea2d",
+      "name": "Send a message",
+      "webhookId": "f6ae9f46-e4de-4fdd-bb9c-95db8384477c",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "dUTAmPuyU5GLEWy8",
+          "name": "Oliver"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [2976, 1088],
+      "id": "67c7616f-85d5-453f-8472-214d53d47f0f",
+      "name": "No Operation, do nothing"
+    },
+    {
+      "parameters": {
+        "operation": "upsert",
+        "dataTableId": {
+          "__rl": true,
+          "value": "8HZDLdL9gQUDwETS",
+          "mode": "list",
+          "cachedResultName": "Briefing Run Log",
+          "cachedResultUrl": "/projects/whUv9Mwz7WJ7hkC5/datatables/8HZDLdL9gQUDwETS"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "owner_id",
+              "keyValue": "={{ $json.ownerId }}"
+            },
+            {
+              "keyName": "run_date",
+              "keyValue": "={{ $now.format('cccc d MMMM') }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "email": "={{ $json.email }}",
+            "owner_id": "={{ $json.ownerId }}",
+            "rep_name": "={{ $json.firstName }} {{ $json.lastName }}",
+            "status": "in_progress",
+            "run_date": "={{ $now.format('cccc d MMMM') }}",
+            "first_name": "={{ $json.firstName }}",
+            "last_name": "={{ $json.lastName }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "email",
+              "displayName": "email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "owner_id",
+              "displayName": "owner_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "rep_name",
+              "displayName": "rep_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "run_date",
+              "displayName": "run_date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "first_name",
+              "displayName": "first_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "last_name",
+              "displayName": "last_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [496, 688],
+      "id": "7a8c949a-2ae1-4e1b-b77b-e0c3b0ef03a3",
+      "name": "Mark Rep In Progress"
+    },
+    {
+      "parameters": {
+        "operation": "rowNotExists",
+        "dataTableId": {
+          "__rl": true,
+          "value": "8HZDLdL9gQUDwETS",
+          "mode": "list",
+          "cachedResultName": "Briefing Run Log",
+          "cachedResultUrl": "/projects/whUv9Mwz7WJ7hkC5/datatables/8HZDLdL9gQUDwETS"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "owner_id",
+              "keyValue": "={{ $json.ownerId }}"
+            },
+            {
+              "keyName": "run_date",
+              "keyValue": "={{ $now.format('cccc d MMMM') }}"
+            },
+            {
+              "keyName": "status",
+              "keyValue": "done"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [288, 688],
+      "id": "1981fe98-423a-4d0d-95c7-df454520c6ce",
+      "name": "Check Not Done Today"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "dataTableId": {
+          "__rl": true,
+          "value": "8HZDLdL9gQUDwETS",
+          "mode": "list",
+          "cachedResultName": "Briefing Run Log",
+          "cachedResultUrl": "/projects/whUv9Mwz7WJ7hkC5/datatables/8HZDLdL9gQUDwETS"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "owner_id",
+              "keyValue": "={{ $('Loop Over Reps').item.json.owner_id }}"
+            },
+            {
+              "keyName": "run_date",
+              "keyValue": "={{ $now.format('cccc d MMMM') }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "status": "done"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "email",
+              "displayName": "email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "owner_id",
+              "displayName": "owner_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "rep_name",
+              "displayName": "rep_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "run_date",
+              "displayName": "run_date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [3104, 704],
+      "id": "aa7e4ca6-266f-4b94-a267-3c38c8b05936",
+      "name": "Mark Rep Done"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "275797eb-7ffe-48ca-aec2-fad1ac2e3703",
+              "name": "TEST_MODE",
+              "value": true,
+              "type": "boolean"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [-640, 688],
+      "id": "cc4e9d38-5908-4533-9773-02c4222da0ac",
+      "name": "Test Mode"
+    }
+  ],
+  "connections": {
+    "Start Weekday Briefing": {
+      "main": [
+        [
+          {
+            "node": "Test Mode",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get HubSpot Owners": {
+      "main": [
+        [
+          {
+            "node": "Split Owners List",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Owners List": {
+      "main": [
+        [
+          {
+            "node": "Filter Account Managers",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter Account Managers": {
+      "main": [
+        [
+          {
+            "node": "Check Not Done Today",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Reps": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Get Open Deals",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Deal Buckets": {
+      "main": [
+        [
+          {
+            "node": "Get Uncontacted Leads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Open Deals": {
+      "main": [
+        [
+          {
+            "node": "Build Deal Buckets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Shape Uncontacted Leads": {
+      "main": [
+        [
+          {
+            "node": "Get MTD Closed Won",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Uncontacted Leads": {
+      "main": [
+        [
+          {
+            "node": "Shape Uncontacted Leads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get MTD Closed Won": {
+      "main": [
+        [
+          {
+            "node": "Build Claude Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Claude Payload": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent": {
+      "main": [
+        [
+          {
+            "node": "Send a message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenRouter Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send a message": {
+      "main": [
+        [
+          {
+            "node": "Mark Rep Done",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "No Operation, do nothing": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Reps",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Rep In Progress": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Reps",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Not Done Today": {
+      "main": [
+        [
+          {
+            "node": "Mark Rep In Progress",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Rep Done": {
+      "main": [
+        [
+          {
+            "node": "No Operation, do nothing",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Test Mode": {
+      "main": [
+        [
+          {
+            "node": "Get HubSpot Owners",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "08e5a236c406fc6d4752b988965342ab48ca500efa7b35caf6e86cba76637988"
+  }
+}

@@ -1,31 +1,23 @@
 // Nodename: Build Email Payloads
-const BROKERS = {
-  78019389: {
-    name: "Ross Davis",
-    firstName: "Ross",
-    email: "ross@londoncasktraders.com",
-  },
-  669879360: {
-    name: "Omar Ismail",
-    firstName: "Omar",
-    email: "omar@londoncasktraders.com",
-  },
-  495523060: {
-    name: "Andrew Parker",
-    firstName: "Andrew",
-    email: "andrew@londoncasktraders.com",
-  },
-  2098380599: {
-    name: "Joshua Lelan",
-    firstName: "Joshua",
-    email: "joshual@londoncasktraders.com",
-  },
-  270811372: {
-    name: "Alice Allen",
-    firstName: "Alice",
-    email: "alice@londoncasktraders.com",
-  },
-};
+const BROKERS = Object.fromEntries(
+  $("Get Sales Reps")
+    .all()
+    .map((item) => item.json)
+    .filter((rep) => rep.broker_id && rep.email)
+    .map((rep) => {
+      const name =
+        [rep.first_name, rep.last_name].filter(Boolean).join(" ") || rep.email;
+
+      return [
+        String(rep.broker_id),
+        {
+          name,
+          firstName: rep.first_name || rep.email.split("@")[0],
+          email: rep.email,
+        },
+      ];
+    }),
+);
 
 const MANAGER_EMAIL = "oliver@londoncasktraders.com";
 
@@ -257,7 +249,7 @@ function buildManagerHtml(items) {
   );
 
   let html = "<p>Hi Oliver,</p>";
-  html += `<p><strong>Total anniversaries this week:</strong> ${items.length} unique casks across 5 brokers</p>`;
+  html += `<p><strong>Total anniversaries this week:</strong> ${items.length} unique casks across ${Object.keys(BROKERS).length} brokers</p>`;
 
   html += "<p><strong>Cohort breakdown:</strong></p><ul>";
   for (const [label, count] of Object.entries(cohortCounts)) {

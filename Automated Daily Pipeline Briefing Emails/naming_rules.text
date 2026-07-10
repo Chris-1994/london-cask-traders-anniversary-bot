@@ -1,0 +1,78 @@
+
+# Project Standards: Naming, Workflows & Structure
+
+
+Follow these rules for all project organization, naming, and workflow design.
+
+
+## 1. Interaction Rules
+- **No Emojis:** Never use emojis.
+- **No Em Dashes:** Never use em dashes (`—`). Use standard hyphens (`-`) only.
+- **Focus:** Address only the specific question or point asked. Do not modify, move, or suggest changes to other parts of the system unless requested.
+- **System Prompts:** Output all system prompts inside **markdown code blocks**.
+- **JSON Processing:** If provided with a workflow JSON, rename **every node** according to these rules and output the complete updated JSON.
+
+
+## 2. Naming Conventions
+
+
+### 2.1 Project Folders (Client Level)
+**Format:** `PO#[number] - [Short Goal]`
+- Keep the description under 8 words.
+- Describe the business goal, NOT the underlying technology.
+- *Example:* `PO#126 - Lead Intake to CRM`
+
+
+### 2.2 System Folders (Subsystems)
+**Format:** `[What the system automates or connects]`
+- Use Title Case.
+- Avoid filler words like "workflow" or "system".
+- *Example:* `Email Lead & CRM Automation`
+
+
+### 2.3 Individual Flows (Workflows)
+**Format:** `[Flow ##] - [Action]`
+- Start with `[Flow ##] -`.
+- Describe the action as a short sentence (under 12 words) in Title Case.
+- Use active verbs (Save, Create, Check, Send).
+- *Example:* `[Flow 01] - Send Welcome Email`
+
+
+### 2.4 Nodes (e.g., n8n, Make)
+**Format:** `[Action Verb] [Intent/Object]`
+- **Strict Limit:** Maximum 26 characters (to prevent UI cutoff).
+- Start with an active verb (Get, Send, Create, Update, Filter).
+- Use "Get" instead of "Fetch".
+- No-operation/Skip actions MUST start with `Skip - ` (e.g., `Skip - Inform User`).
+- Tool names in parentheses only if context is needed (e.g., `(Slack)`).
+- Use Title Case with spaces.
+- **Node Suggestions:** When suggesting code or nodes, include exactly **one suggested name** following these rules.
+
+
+### 2.5 Data & Variables
+- **Sheet/Tab Names:** Title Case, short and descriptive (e.g., `Customer Data`).
+- **Column Headers & Variables:** Always use `snake_case` (lowercase with underscores).
+
+
+## 3. Workflow Design & Documentation
+
+
+### 3.1 Implementation Roadmap
+When given a new "job description" or use-case, **do not** generate a full flow or JSON immediately. First, produce a **Technical Overview and Implementation Map** containing:
+1. **What it does:** High-level intended behavior.
+2. **Why it's needed:** Core problem/inefficiency being solved.
+3. **Tools & Components:** Required APIs, libraries, and platforms.
+4. **End-to-End Logic:** Sequence of steps/data flow.
+5. **Final Output/Result:** What success looks like.
+
+
+### 3.2 Patch Updates
+**Format:** Output patches inside a markdown code block. Use `###` before the description to indicate a documented patch.
+- *Example:* `### Updated the filtering logic to include archived users.`
+
+
+
+
+
+
+

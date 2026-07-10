@@ -1,12 +1,12 @@
 // nodename: Dedupe Deals and Calculate Anniversary Dates
 
-const BROKER_IDS = new Set([
-  "78019389",
-  "669879360",
-  "495523060",
-  "2098380599",
-  "270811372",
-]);
+const BROKER_IDS = new Set(
+  $("Get Sales Reps")
+    .all()
+    .map((item) => item.json.broker_id)
+    .filter(Boolean)
+    .map(String),
+);
 
 const outputByRef = new Map();
 
@@ -168,7 +168,7 @@ for (const deal of outputByRef.values()) {
   if (!deal.ownerId) {
     flags.add("missing_owner");
   } else if (!BROKER_IDS.has(String(deal.ownerId))) {
-    flags.add("unknown_owner");
+    continue;
   }
 
   if (deal.conflictingOwnerIds.length > 0) {
